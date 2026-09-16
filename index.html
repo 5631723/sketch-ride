@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>SKETCH RIDE · 线稿驾驶</title>
+<style>
+  :root{
+    --ink:#1c1b19;
+    --paper:#f4f1e8;
+    --accent:#c8452c;
+    --hand:"Segoe Print","Ink Free","Comic Sans MS","LXGW WenKai","KaiTi","STKaiti",system-ui,-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--paper);}
+  body{
+    font-family:var(--hand);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    cursor:crosshair;
+    user-select:none;
+  }
+  #c{position:fixed;inset:0;display:block;}
+
+  /* 纸张颗粒 */
+  #grain{
+    position:fixed;inset:0;pointer-events:none;z-index:5;
+    opacity:.5;mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23n)' opacity='0.16'/></svg>");
+  }
+  /* 暗角 */
+  #vig{
+    position:fixed;inset:0;pointer-events:none;z-index:6;
+    background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 42%,rgba(90,80,60,.13) 100%);
+  }
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:10;pointer-events:none;}
+  .panel{
+    position:absolute;
+    background:rgba(255,253,247,.70);
+    border:2px solid var(--ink);
+    /* 手绘感不规则圆角 */
+    border-radius:16px 11px 18px 9px / 10px 17px 9px 15px;
+    padding:8px 14px 9px;
+    box-shadow:2px 3px 0 rgba(28,27,25,.13), inset 0 0 0 1px rgba(255,255,255,.5);
+    backdrop-filter:blur(1px);
+  }
+  .panel::after{
+    content:"";position:absolute;inset:-5px;border:1px solid rgba(28,27,25,.14);
+    border-radius:20px 13px 22px 11px / 12px 21px 11px 19px;pointer-events:none;
+  }
+  .lbl{font-size:10px;letter-spacing:.22em;opacity:.55;text-transform:uppercase;display:block;line-height:1.5}
+
+  #pSpeed{left:22px;bottom:22px;min-width:172px;transform:rotate(-.7deg);padding:10px 16px 12px;}
+  #pSpeed .val{font-size:52px;line-height:1;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  #pSpeed .unit{font-size:13px;letter-spacing:.18em;margin-left:6px;opacity:.6}
+  #spdBar{margin-top:9px;height:9px;border:1.6px solid var(--ink);border-radius:6px 4px 7px 3px/4px 6px 3px 5px;overflow:hidden;background:rgba(255,255,255,.6)}
+  #spdFill{height:100%;width:0%;background:var(--ink);transition:width .05s linear}
+  #spdFill.red{background:var(--accent)}
+
+  #pTime{right:22px;top:22px;min-width:186px;transform:rotate(.8deg);}
+  #pTime .row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;margin:2px 0}
+  #pTime .row b{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  #pTime .row.big b{font-size:27px}
+  #pTime .row.best b{color:var(--accent)}
+
+  #pCP{left:22px;top:22px;transform:rotate(-1deg);}
+  #cpDots{display:flex;gap:5px;margin-top:7px}
+  .dot{width:13px;height:13px;border:1.9px solid var(--ink);border-radius:50% 46% 52% 48%/48% 52% 46% 54%;}
+  .dot.done{background:var(--ink)}
+  .dot.next{background:var(--accent);border-color:var(--accent);transform:scale(1.22)}
+  #cpInfo{margin-top:7px;font-size:12px;opacity:.62;letter-spacing:.06em}
+
+  #pKeys{left:50%;bottom:24px;transform:translateX(-50%) rotate(.4deg);font-size:12.5px;letter-spacing:.04em;opacity:.82;padding:7px 16px}
+  #pKeys b{font-weight:700}
+  #pKeys .sep{opacity:.35;margin:0 9px}
+
+  #toast{
+    position:absolute;left:50%;top:22%;transform:translate(-50%,-50%);z-index:20;
+    font-size:46px;font-weight:700;letter-spacing:.04em;opacity:0;
+    text-shadow:3px 3px 0 rgba(255,253,247,.9);
+    pointer-events:none;white-space:nowrap;
+  }
+  #toast.show{animation:pop 1.9s cubic-bezier(.2,.9,.3,1) forwards}
+  #toast small{display:block;font-size:17px;font-weight:400;letter-spacing:.16em;opacity:.75;margin-top:4px}
+  @keyframes pop{
+    0%{opacity:0;transform:translate(-50%,-50%) scale(.72) rotate(-3deg)}
+    14%{opacity:1;transform:translate(-50%,-50%) scale(1.05) rotate(-1deg)}
+    24%{transform:translate(-50%,-50%) scale(1) rotate(-1deg)}
+    74%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(-1deg)}
+    100%{opacity:0;transform:translate(-50%,-58%) scale(.97) rotate(-1deg)}
+  }
+
+  /* ---------- 开始 / 结束 遮罩 ---------- */
+  #overlay{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    background:rgba(244,241,232,.86);backdrop-filter:blur(3px);cursor:pointer;
+  }
+  #overlay.hide{display:none}
+  .card{
+    background:#fffdf7;border:2.4px solid var(--ink);
+    border-radius:26px 18px 28px 15px/17px 26px 15px 24px;
+    box-shadow:6px 8px 0 rgba(28,27,25,.16);
+    padding:40px 54px 34px;text-align:center;max-width:640px;
+    transform:rotate(-.8deg);position:relative;
+  }
+  .card::after{content:"";position:absolute;inset:-9px;border:1.4px solid rgba(28,27,25,.2);
+    border-radius:32px 22px 34px 19px/21px 32px 19px 30px;pointer-events:none}
+  .card h1{font-size:52px;letter-spacing:.06em;line-height:1.05;margin-bottom:2px}
+  .card h2{font-size:15px;letter-spacing:.62em;font-weight:400;opacity:.55;margin-bottom:22px;padding-left:.62em}
+  .rule{height:0;border-top:2px solid var(--ink);opacity:.85;margin:0 auto 20px;width:78%;
+    border-image:repeating-linear-gradient(90deg,var(--ink) 0 9px,transparent 9px 15px) 2;}
+  .keys{font-size:13.5px;line-height:2.1;letter-spacing:.03em;text-align:left;display:inline-block;opacity:.85}
+  .keys kbd{
+    display:inline-block;min-width:26px;padding:1px 7px;margin-right:3px;
+    border:1.7px solid var(--ink);border-radius:7px 5px 8px 4px/5px 7px 4px 6px;
+    background:#faf7ee;box-shadow:1px 1.5px 0 rgba(28,27,25,.22);
+    font-family:inherit;font-size:12.5px;
+  }
+  .cta{margin-top:26px;font-size:16px;letter-spacing:.22em;
+    animation:blink 1.35s ease-in-out infinite;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  .foot{margin-top:18px;font-size:11px;letter-spacing:.1em;opacity:.4}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vig"></div>
+<div id="grain"></div>
+
+<div id="hud">
+  <div class="panel" id="pCP">
+    <span class="lbl">Checkpoints</span>
+    <div id="cpDots"></div>
+    <div id="cpInfo">--</div>
+  </div>
+
+  <div class="panel" id="pTime">
+    <div class="row big"><span class="lbl">Lap</span><b id="tLap">0.00</b></div>
+    <div class="row best"><span class="lbl">Best</span><b id="tBest">--.--</b></div>
+    <div class="row"><span class="lbl">Laps</span><b id="tLaps">0</b></div>
+  </div>
+
+  <div class="panel" id="pSpeed">
+    <span class="lbl">Speed</span>
+    <div><span class="val" id="spd">0</span><span class="unit">KM/H</span></div>
+    <div id="spdBar"><div id="spdFill"></div></div>
+  </div>
+
+  <div class="panel" id="pKeys">
+    <b>W/↑</b> 油门 <span class="sep">·</span> <b>S/↓</b> 刹车·倒车
+    <span class="sep">·</span> <b>A D / ← →</b> 转向
+    <span class="sep">·</span> <b>空格</b> 手刹漂移
+    <span class="sep">·</span> <b>R</b> 重置
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<div id="overlay">
+  <div class="card">
+    <h1>SKETCH RIDE</h1>
+    <h2>线稿驾驶</h2>
+    <div class="rule"></div>
+    <div class="keys">
+      <div><kbd>W</kbd><kbd>↑</kbd> 油门 &nbsp;&nbsp; <kbd>S</kbd><kbd>↓</kbd> 刹车 / 倒车</div>
+      <div><kbd>A</kbd><kbd>D</kbd> 或 <kbd>←</kbd><kbd>→</kbd> 转向</div>
+      <div><kbd>空格</kbd> 手刹（拉起来会漂移）</div>
+      <div><kbd>R</kbd> 回到起点重新开始这一圈</div>
+    </div>
+    <div class="cta">按 空 格 或 点 击 开 始</div>
+    <div class="foot">零依赖 · 单文件 · Canvas 2D 手写 3D 线框管线</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   SKETCH RIDE — 线稿风格 3D 驾驶游戏
+   ---------------------------------------------------------------------
+   渲染思路：
+     线稿只需要「投影 + 画线」。跳过光照、材质、纹理，直接：
+       世界坐标 → 相机空间 → 近平面裁剪 → 透视投影
+       → 按深度分 N 层合批（每层一次 stroke）
+       → 屏幕空间低频抖动（手绘不齐感）
+     三个笔刷缓冲：soft(排线/网格) / buf(结构线) / acc(强调线)
+   ===================================================================== */
+
+// ---------------------------------------------------------------- 常量
+const TAU = Math.PI * 2;
+const PAPER = "#f4f1e8";
+const INK_RGB = "28,27,25";
+const ACC_RGB = "198,69,44";
+const NEAR_Z = 0.42;
+const FAR_Z  = 560;
+const NLAYER = 6;
+
+const clamp = (v,a,b)=> v<a?a:(v>b?b:v);
+const lerp  = (a,b,t)=> a+(b-a)*t;
+
+// 位置稳定的伪随机：同一个世界坐标永远得到同一个抖动种子，
+// 这样相邻线段共享端点时不会"裂开"
+function hash3(x,y,z){
+  const s = Math.sin(x*127.1 + y*311.7 + z*74.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// ---------------------------------------------------------------- 画布
+const cv  = document.getElementById("c");
+const ctx = cv.getContext("2d", {alpha:false});
+let W = 0, H = 0, dpr = 1;
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width  = Math.floor(W*dpr);
+  cv.height = Math.floor(H*dpr);
+  cv.style.width  = W+"px";
+  cv.style.height = H+"px";
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ------------------------------------------------------------ 笔刷缓冲
+// 每条线段用 6 个数字平铺：ax,ay,az, bx,by,bz
+const RB = {
+  soft: [],   // 淡笔：地面网格、路面排线
+  buf:  [],   // 墨笔：场景结构线
+  acc:  [],   // 强调笔：下一个检查点、导航箭头
+
+  seg(b, ax,ay,az, bx,by,bz){ b.push(ax,ay,az,bx,by,bz); },
+
+  // 以 (cx,cy,cz) 为中心、绕 Y 轴旋转 yaw 的线框方盒
+  box(b, cx,cy,cz, hw,hh,hd, yaw){
+    const s = Math.sin(yaw), c = Math.cos(yaw);
+    const P = [];
+    for(let i=0;i<8;i++){
+      const lx = (i&1)? hw : -hw;
+      const ly = (i&2)? hh : -hh;
+      const lz = (i&4)? hd : -hd;
+      // 局部 x → 世界 (c,0,-s) ；局部 z → 世界 (s,0,c)
+      P.push(cx + lx*c + lz*s, cy + ly, cz - lx*s + lz*c);
+    }
+    const E = [0,1, 2,3, 4,5, 6,7,  0,2, 1,3, 4,6, 5,7,  0,4, 1,5, 2,6, 3,7];
+    for(let k=0;k<E.length;k+=2){
+      const a=E[k]*3, q=E[k+1]*3;
+      b.push(P[a],P[a+1],P[a+2], P[q],P[q+1],P[q+2]);
+    }
+  }
+};
+
+// ---------------------------------------------------------------- 相机
+const cam = {
+  px:0, py:8, pz:0,
+  rx:1, ry:0, rz:0,
+  ux:0, uy:1, uz:0,
+  fx:0, fy:0, fz:1,
+  focal:520, cx:0, cy:0, w:1, h:1
+};
+
+function camLook(px,py,pz, tx,ty,tz, focalPx){
+  let fx=tx-px, fy=ty-py, fz=tz-pz;
+  const fl = Math.hypot(fx,fy,fz) || 1;
+  fx/=fl; fy/=fl; fz/=fl;
+
+  // right = normalize(cross(up, f))，up=(0,1,0) → (fz, 0, -fx)
+  let rx=fz, ry=0, rz=-fx;
+  const rl = Math.hypot(rx,ry,rz) || 1;
+  rx/=rl; ry/=rl; rz/=rl;
+
+  // up' = cross(f, right)
+  const ux = fy*rz - fz*ry;
+  const uy = fz*rx - fx*rz;
+  const uz = fx*ry - fy*rx;
+
+  cam.px=px; cam.py=py; cam.pz=pz;
+  cam.fx=fx; cam.fy=fy; cam.fz=fz;
+  cam.rx=rx; cam.ry=ry; cam.rz=rz;
+  cam.ux=ux; cam.uy=uy; cam.uz=uz;
+  cam.focal = focalPx;
+}
+
+// --------------------------------------------------- 投影 / 分层 / 抖动
+const layers = [];
+for(let i=0;i<NLAYER;i++) layers.push([]);
+let T_JIT = 0;   // 抖动相位（缓慢累积）
+
+function drawBrush(buf, sk){
+  const n = buf.length;
+  if(!n) return;
+  for(let i=0;i<NLAYER;i++) layers[i].length = 0;
+
+  const c = cam, cx=c.cx, cy=c.cy, foc=c.focal;
+  const fwx=c.fx, fwy=c.fy, fwz=c.fz;
+  const rix=c.rx, riy=c.ry, riz=c.rz;
+  const upx=c.ux, upy=c.uy, upz=c.uz;
+  const px=c.px, py=c.py, pz=c.pz;
+  const M = 90, WM = W+M, HM = H+M;
+
+  for(let i=0;i<n;i+=6){
+    const wax=buf[i], way=buf[i+1], waz=buf[i+2];
+    const wbx=buf[i+3], wby=buf[i+4], wbz=buf[i+5];
+
+    let dx=wax-px, dy=way-py, dz=waz-pz;
+    let axc = dx*rix+dy*riy+dz*riz, ayc = dx*upx+dy*upy+dz*upz, azc = dx*fwx+dy*fwy+dz*fwz;
+    dx=wbx-px; dy=wby-py; dz=wbz-pz;
+    let bxc = dx*rix+dy*riy+dz*riz, byc = dx*upx+dy*upy+dz*upz, bzc = dx*fwx+dy*fwy+dz*fwz;
+
+    // --- 近平面裁剪
+    if(azc < NEAR_Z && bzc < NEAR_Z) continue;
+    if(azc < NEAR_Z){
+      const t = (NEAR_Z-azc)/(bzc-azc);
+      axc = lerp(axc,bxc,t); ayc = lerp(ayc,byc,t); azc = NEAR_Z;
+    } else if(bzc < NEAR_Z){
+      const t = (NEAR_Z-bzc)/(azc-bzc);
+      bxc = lerp(bxc,axc,t); byc = lerp(byc,ayc,t); bzc = NEAR_Z;
+    }
+    if(azc > FAR_Z && bzc > FAR_Z) continue;
+
+    // 相机贴脸剔除：线段擦着相机掠过时（比如穿过路灯杆），
+    // 投影会变成横跨整个屏幕的丑线 —— 任一端点距离相机过近就丢弃
+    if(azc < 2.4 || bzc < 2.4){
+      if(axc*axc + ayc*ayc + azc*azc < 0.81) continue;
+      if(bxc*bxc + byc*byc + bzc*bzc < 0.81) continue;
+    }
+
+    // --- 透视投影
+    const iza = foc/azc, izb = foc/bzc;
+    let sax = cx + axc*iza, say = cy - ayc*iza;
+    let sbx = cx + bxc*izb, sby = cy - byc*izb;
+
+    // --- 视口剔除
+    if((sax<-M && sbx<-M) || (sax>WM && sbx>WM) ||
+       (say<-M && sby<-M) || (say>HM && sby>HM)) continue;
+    // 屏幕长度保险：超过两倍对角线的线一定是贴脸 artifact
+    {
+      const ddx = sbx-sax, ddy = sby-say;
+      if(ddx*ddx + ddy*ddy > (W*W + H*H)*4) continue;
+    }
+
+    // --- 深度分层：0 最远 … NLAYER-1 最近
+    const zm = (azc+bzc)*0.5;
+    const t  = clamp((zm-NEAR_Z)/(FAR_Z-NEAR_Z), 0, 1);
+    const li = Math.round((1-t)*(NLAYER-1));
+    const layer = layers[li];
+
+    // --- 手绘抖动（远处不抖，省算力也更干净）
+    if(t < 0.72){
+      const amp = sk.jit * (0.30 + (1-t)*0.95);
+      const hA = hash3(wax,way,waz), hB = hash3(wbx,wby,wbz);
+      sax += (Math.sin(T_JIT*1.13 + hA*61.0)*0.62 + Math.sin(T_JIT*0.51 + hA*137.0)*0.38)*amp;
+      say += (Math.sin(T_JIT*0.97 + hA*97.0)*0.62 + Math.sin(T_JIT*0.43 + hA*211.0)*0.38)*amp;
+      sbx += (Math.sin(T_JIT*1.07 + hB*61.0)*0.62 + Math.sin(T_JIT*0.59 + hB*137.0)*0.38)*amp;
+      sby += (Math.sin(T_JIT*0.89 + hB*97.0)*0.62 + Math.sin(T_JIT*0.47 + hB*211.0)*0.38)*amp;
+    }
+    layer.push(sax,say,sbx,sby);
+  }
+
+  // --- 由远及近逐层 stroke：每层一次 draw call
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for(let i=0;i<NLAYER;i++){
+    const L = layers[i];
+    if(!L.length) continue;
+    const t = i/(NLAYER-1);                    // 0 远 → 1 近
+    const a = sk.a0 + Math.pow(t,1.5)*(sk.a1-sk.a0);
+    ctx.lineWidth   = sk.w0 + t*(sk.w1-sk.w0);
+    ctx.strokeStyle = "rgba("+sk.c+","+a.toFixed(3)+")";
+    ctx.beginPath();
+    for(let k=0;k<L.length;k+=4){
+      ctx.moveTo(L[k],L[k+1]);
+      ctx.lineTo(L[k+2],L[k+3]);
+    }
+    ctx.stroke();
+  }
+}
+
+/* =====================================================================
+   场景构建
+   ===================================================================== */
+
+// -------------------------------------------------- Catmull-Rom 闭合样条
+const CTRL = [
+  [-40,-160],[ 60,-170],[150,-130],[175,-40],[130, 20],
+  [ 60,  10],[ 20,  70],[ 70, 140],[ 10,200],[-90,190],
+  [-150,130],[-190, 40],[-170,-60],[-110,-140]
+].map(p=>[p[0]*0.84, p[1]*0.84]);
+
+function crSample(t){
+  const n = CTRL.length;
+  const ft = (((t%1)+1)%1) * n;
+  const i = Math.floor(ft), u = ft-i;
+  const p0=CTRL[(i-1+n)%n], p1=CTRL[i%n], p2=CTRL[(i+1)%n], p3=CTRL[(i+2)%n];
+  const u2=u*u, u3=u2*u;
+  const f = (a,b,c,d)=> 0.5*((2*b) + (-a+c)*u + (2*a-5*b+4*c-d)*u2 + (-a+3*b-3*c+d)*u3);
+  return [ f(p0[0],p1[0],p2[0],p3[0]), f(p0[1],p1[1],p2[1],p3[1]) ];
+}
+
+const TRACK_N = 440;
+const track = [];
+for(let i=0;i<TRACK_N;i++){
+  const t = i/TRACK_N;
+  const a = crSample(t), b = crSample(t + 1/TRACK_N);
+  let tx=b[0]-a[0], tz=b[1]-a[1];
+  const l = Math.hypot(tx,tz) || 1;
+  tx/=l; tz/=l;
+  // 路宽随路段起伏：窄弯 + 宽直道
+  const w = 7.4 + 1.7*Math.sin(t*TAU*4 + 0.7) + 0.9*Math.sin(t*TAU*9 + 2.1);
+  track.push({x:a[0], z:a[1], tx, tz, nx:-tz, nz:tx, w});
+}
+
+let TRACK_LEN = 0;
+for(let i=0;i<TRACK_N;i++){
+  const a=track[i], b=track[(i+1)%TRACK_N];
+  TRACK_LEN += Math.hypot(b.x-a.x, b.z-a.z);
+}
+
+// ------------------------------------------------------------- 静态几何
+const STATIC_MAIN = [];   // → RB.buf
+const STATIC_SOFT = [];   // → RB.soft
+
+// 地面双层网格：近处细、远处粗，淡出到纸白自然形成地平线。
+// 关键：每条格线切成单格长度的短段 —— 抖动量作用在顶点上，
+// 长直线只有两个端点会抖，中段依旧笔直死板；切成短段后整片地面才会「手抖」。
+(function buildGround(){
+  const S = STATIC_SOFT;
+
+  const fR = 144, fS = 16;                       // 细网格：±144m，格距 16m
+  const fn = Math.floor(fR*2/fS);
+  for(let i=0;i<=fn;i++){
+    const x = -fR + i*fS;
+    for(let j=0;j<fn;j++){
+      const z0 = -fR + j*fS, z1 = z0 + fS;
+      RB.seg(S, x,0,z0, x,0,z1);
+      RB.seg(S, z0,0,x, z1,0,x);
+    }
+  }
+
+  const cR = 576, cS = 72;                       // 粗网格：向外延伸到 576m
+  const cn = Math.floor(cR*2/cS);
+  const inFine = (px,pz)=> Math.abs(px) <= fR && Math.abs(pz) <= fR;
+  for(let i=0;i<=cn;i++){
+    const x = -cR + i*cS;
+    for(let j=0;j<cn;j++){
+      const z0 = -cR + j*cS, z1 = z0 + cS, zm = (z0+z1)*0.5;
+      if(!inFine(x, zm))  RB.seg(S, x,0,z0, x,0,z1);      // 竖线
+      if(!inFine(zm, x))  RB.seg(S, z0,0,x, z1,0,x);      // 横线
+    }
+  }
+})();
+
+// 赛道：左右边缘线 + 中心虚线 + 路面横排线
+(function buildTrack(){
+  const M = STATIC_MAIN, S = STATIC_SOFT;
+  const EDL = [], EDR = [];
+  for(let i=0;i<TRACK_N;i++){
+    const t = track[i];
+    EDL.push([t.x + t.nx*t.w, 0.02, t.z + t.nz*t.w]);
+    EDR.push([t.x - t.nx*t.w, 0.02, t.z - t.nz*t.w]);
+  }
+  for(let i=0;i<TRACK_N;i++){
+    const j = (i+1)%TRACK_N;
+    RB.seg(M, EDL[i][0],EDL[i][1],EDL[i][2], EDL[j][0],EDL[j][1],EDL[j][2]);
+    RB.seg(M, EDR[i][0],EDR[i][1],EDR[i][2], EDR[j][0],EDR[j][1],EDR[j][2]);
+  }
+  // 中心虚线 + 侧向排线
+  for(let i=0;i<TRACK_N;i+=2){
+    const t = track[i];
+    if((i/2) % 3 === 0){
+      const k1 = 1.6, k2 = 3.0;
+      RB.seg(M, t.x+t.tx*k1, 0.03, t.z+t.tz*k1, t.x+t.tx*k2, 0.03, t.z+t.tz*k2);
+    }
+  }
+  for(let i=0;i<TRACK_N;i+=3){
+    const t = track[i];
+    const a = 1.0;   // 排线两端内缩，避免和边缘线糊在一起
+    const w = t.w - a;
+    RB.seg(S, t.x+t.nx*w, 0.015, t.z+t.nz*w, t.x-t.nx*w, 0.015, t.z-t.nz*w);
+  }
+})();
+
+// 起点 / 终点：黑白格排线
+(function buildStartLine(){
+  const M = STATIC_MAIN;
+  const t = track[0];
+  const n = 9;
+  for(let i=0;i<n;i++){
+    const u0 = -t.w + (2*t.w)*(i/n);
+    const u1 = -t.w + (2*t.w)*((i+1)/n);
+    const zoff = (i%2===0)? 0.0 : 0.9;
+    RB.seg(M,
+      t.x + t.nx*u0 + t.tx*(-0.45+zoff), 0.05, t.z + t.nz*u0 + t.tz*(-0.45+zoff),
+      t.x + t.nx*u1 + t.tx*(-0.45+zoff), 0.05, t.z + t.nz*u1 + t.tz*(-0.45+zoff));
+    RB.seg(M,
+      t.x + t.nx*u0 + t.tx*(0.45+zoff), 0.05, t.z + t.nz*u0 + t.tz*(0.45+zoff),
+      t.x + t.nx*u1 + t.tx*(0.45+zoff), 0.05, t.z + t.nz*u1 + t.tz*(0.45+zoff));
+  }
+})();
+
+// --------------------------------------------------------- 场景道具生成
+function addTree(b, x, z, h){
+  const r = h*0.36;
+  RB.seg(b, x, 0, z, x, h*0.34, z);                 // 树干
+  const N = 6, by = h*0.28, ty = h;
+  const pts = [];
+  for(let i=0;i<N;i++){
+    const a = i/N*TAU + 0.35;
+    pts.push([x+Math.cos(a)*r, by, z+Math.sin(a)*r]);
+  }
+  for(let i=0;i<N;i++){
+    const p = pts[i], q = pts[(i+1)%N];
+    RB.seg(b, p[0],p[1],p[2], q[0],q[1],q[2]);      // 底圈
+    RB.seg(b, p[0],p[1],p[2], x, ty, z);            // 侧棱
+  }
+}
+
+function addBush(b, x, z, s){
+  const N = 5, r = s;
+  const pts = [];
+  for(let i=0;i<N;i++){
+    const a = i/N*TAU + 0.6;
+    pts.push([x+Math.cos(a)*r, 0.05, z+Math.sin(a)*r]);
+  }
+  for(let i=0;i<N;i++){
+    const p=pts[i], q=pts[(i+1)%N];
+    RB.seg(b, p[0],p[1],p[2], q[0],q[1],q[2]);
+    if(i%2===0) RB.seg(b, p[0],p[1],p[2], x, r*1.15, z);
+  }
+}
+
+function addTyreStack(b, x, z, n){
+  for(let k=0;k<n;k++){
+    const y = 0.22 + k*0.42;
+    const r = 0.34, N = 6, pts = [];
+    for(let i=0;i<N;i++){
+      const a = i/N*TAU + k*0.4;
+      pts.push([x+Math.cos(a)*r, y, z+Math.sin(a)*r]);
+    }
+    for(let i=0;i<N;i++){
+      const p=pts[i], q=pts[(i+1)%N];
+      RB.seg(b, p[0],p[1],p[2], q[0],q[1],q[2]);
+    }
+  }
+}
+
+function addLamp(b, x, z, yaw){
+  RB.seg(b, x,0,z, x,5.4,z);                                     // 立杆
+  const ax = x + Math.sin(yaw)*1.7, az = z + Math.cos(yaw)*1.7;
+  RB.seg(b, x,5.4,z, ax,5.4,az);                                 // 悬臂
+  RB.seg(b, ax,5.4,az, ax,4.85,az);                              // 灯头
+  RB.seg(b, ax+Math.sin(yaw)*0.5,5.4,az+Math.cos(yaw)*0.5, ax+Math.sin(yaw)*0.5,4.85,az+Math.cos(yaw)*0.5);
+}
+
+function addPerson(b, x, z, yaw, s){
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const hHead = s*0.86, w = s*0.17;
+  const rHead = s*0.115;
+  // 头（八边形小圆，挂在 XZ 平面上方的竖直圆——用一个横躺的圆近似）
+  const hy = s*0.66, hz = 0.0;
+  const pts = [];
+  for(let i=0;i<8;i++){
+    const a = i/8*TAU;
+    pts.push([x + Math.cos(a)*rHead, hy + Math.sin(a)*rHead, z]);
+  }
+  for(let i=0;i<8;i++){
+    const p=pts[i], q=pts[(i+1)%8];
+    RB.seg(b, p[0],p[1],p[2], q[0],q[1],q[2]);
+  }
+  RB.seg(b, x, s*0.10, z, x, s*0.55, z);                        // 躯干
+  RB.seg(b, x, s*0.10, z, x + sn*s*0.16, 0.02, z + c*s*0.16);   // 腿前
+  RB.seg(b, x, s*0.10, z, x - sn*s*0.16, 0.02, z - c*s*0.16);   // 腿后
+  RB.seg(b, x, s*0.44, z, x + c*w*1.9, s*0.30, z - sn*w*1.9);   // 手
+  RB.seg(b, x, s*0.44, z, x - c*w*1.9, s*0.34, z + sn*w*1.9);
+}
+
+// 沿赛道两侧撒道具
+(function decorate(){
+  const M = STATIC_MAIN;
+  for(let i=0;i<TRACK_N;i+=7){
+    const t = track[i];
+    for(const side of [1,-1]){
+      const h1 = hash3(t.x, i*3.1, side*7.7);
+      const h2 = hash3(t.z, i*5.3, side*2.9);
+      if(h1 > 0.62) continue;
+      const off = t.w + 2.6 + h2*8.5;
+      const x = t.x + t.nx*off*side;
+      const z = t.z + t.nz*off*side;
+      const pick = hash3(x*1.7, z*2.3, 11.1);
+      if(pick < 0.60){
+        addTree(M, x, z, 4.4 + h1*4.6);
+      } else if(pick < 0.78){
+        addBush(M, x, z, 0.85 + h2*0.7);
+      } else if(pick < 0.90){
+        addTyreStack(M, x, z, 2 + Math.floor(h1*3));
+      } else {
+        addPerson(M, x, z, h1*TAU, 1.55 + h2*0.32);
+      }
+    }
+  }
+  // 路灯：稀疏、立在赛道外一段距离（太近会被相机穿过产生 artifact）
+  for(let i=0;i<TRACK_N;i+=37){
+    const t = track[i];
+    addLamp(M, t.x + t.nx*(t.w+5.5), t.z + t.nz*(t.w+5.5), Math.atan2(-t.nx,-t.nz));
+  }
+  // 远景天际线：远处成片的盒子
+  for(let k=0;k<46;k++){
+    const a = (k/46)*TAU + 0.31;
+    const r = 250 + hash3(k*3.7, 1.3, 5.5)*210;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r;
+    const hh = 8 + hash3(k*1.9, 7.7, 2.2)*34;
+    const hw = 7 + hash3(k*4.1, 3.3, 8.8)*12;
+    RB.box(M, x, hh*0.5, z, hw, hh*0.5, hw*0.9, hash3(k,2.0,4.0)*TAU);
+  }
+})();
+
+const N_STATIC_MAIN = STATIC_MAIN.length;
+
+/* =====================================================================
+   检查点
+   ===================================================================== */
+const CP_COUNT = 9;
+// 弧长参数化均匀分布：按样条参数均分会疏密不均（弯密直疏）
+const CUM = [0];
+for(let i=1;i<=TRACK_N;i++){
+  const a = track[i-1], b = track[i%TRACK_N];
+  CUM.push(CUM[i-1] + Math.hypot(b.x-a.x, b.z-a.z));
+}
+const CPS = [];
+for(let i=0;i<CP_COUNT;i++){
+  const target = CUM[TRACK_N] * i / CP_COUNT;
+  let lo = 0, hi = TRACK_N;
+  while(lo < hi){ const mid = (lo+hi)>>1; if(CUM[mid] < target) lo = mid+1; else hi = mid; }
+  const t = track[lo % TRACK_N];
+  CPS.push({x:t.x, z:t.z, tx:t.tx, tz:t.tz, nx:t.nx, nz:t.nz, w:t.w});
+}
+// 检查点拱门
+function buildGate(b, cp){
+  const h = 5.0, w = cp.w + 1.6;
+  const lx = cp.x + cp.nx*w, lz = cp.z + cp.nz*w;
+  const rx = cp.x - cp.nx*w, rz = cp.z - cp.nz*w;
+  // 立柱
+  RB.seg(b, lx,0,lz, lx,h,lz);
+  RB.seg(b, rx,0,rz, rx,h,rz);
+  // 立柱底部斜撑
+  RB.seg(b, lx,0,lz, lx+cp.tx*1.5,0.05,lz+cp.tz*1.5);
+  RB.seg(b, rx,0,rz, rx+cp.tx*1.5,0.05,rz+cp.tz*1.5);
+  // 横梁（双线，草图感）
+  RB.seg(b, lx,h,lz, rx,h,rz);
+  RB.seg(b, lx,h+0.42,lz, rx,h+0.42,rz);
+  // 顶端三角旗
+  const mx = (lx+rx)*0.5, mz = (lz+rz)*0.5;
+  RB.seg(b, mx,h+0.42,mz, mx,h+1.5,mz);
+  RB.seg(b, mx,h+1.5,mz, mx+cp.tx*1.5, h+1.05, mz+cp.tz*1.5);
+  RB.seg(b, mx+cp.tx*1.5, h+1.05, mz+cp.tz*1.5, mx, h+0.42, mz);
+}
+
+/* =====================================================================
+   车辆
+   ===================================================================== */
+const car = {
+  x:0, z:0, h:0,
+  vx:0, vz:0,
+  vf:0, vl:0,
+  offRoad:0, hand:false,
+  slip:0
+};
+
+// 参数按"既要爽快又要有重量感"标定：
+// 极速平衡点  engine = drag*v^2 + roll*v
+//             16 = 0.0028*v^2 + 0.18*v  →  v ≈ 50 m/s ≈ 180 km/h
+// 0→100km/h 约 2.2s，街机手感
+const P = {
+  engine:16,
+  brake:26,
+  reverse:10,
+  drag:0.0028,
+  roll:0.18,
+  gripNormal:6.6,
+  gripHand:2.2,
+  gripOff:3.6,
+  steerMax:2.85,
+  steerMin:0.95,
+  steerRef:30,
+  topSpeed:52
+};
+
+function resetCar(){
+  const t = track[0];
+  car.x = t.x + t.tx*7;
+  car.z = t.z + t.tz*7;
+  car.h = Math.atan2(t.tx, t.tz);
+  car.vx = 0; car.vz = 0; car.vf = 0; car.vl = 0;
+  car.offRoad = 0; car.slip = 0;
+  lastIdx = 0;
+  camSnap();
+}
+
+let lastIdx = 0;
+function nearestTrack(x, z){
+  let best = Infinity, bi = lastIdx;
+  for(let k=-48;k<=48;k++){
+    const i = ((lastIdx+k)%TRACK_N + TRACK_N)%TRACK_N;
+    const t = track[i];
+    const dx = x-t.x, dz = z-t.z;
+    const d = dx*dx + dz*dz;
+    if(d < best){ best = d; bi = i; }
+  }
+  // 被甩出赛道很远时局部窗口会失效 → 退化成全量扫描
+  if(best > 8100){
+    for(let i=0;i<TRACK_N;i++){
+      const t = track[i];
+      const dx = x-t.x, dz = z-t.z;
+      const d = dx*dx + dz*dz;
+      if(d < best){ best = d; bi = i; }
+    }
+  }
+  lastIdx = bi;
+  const t = track[bi];
+  return {i:bi, x:t.x, z:t.z, tx:t.tx, tz:t.tz, nx:t.nx, nz:t.nz, w:t.w, d:Math.sqrt(best)};
+}
+
+// 车体线框（每帧按当前位置重建）
+function buildCar(){
+  const b = RB.buf, A = RB.acc;
+  const cx = car.x, cz = car.z, yaw = car.h;
+  const s = Math.sin(yaw), c = Math.cos(yaw);
+
+  // 局部 → 世界
+  const L2W = (lx,ly,lz)=>[ cx + lx*c + lz*s, ly, cz - lx*s + lz*c ];
+
+  // 底盘 + 座舱
+  RB.box(b, cx, 0.72, cz, 0.92, 0.30, 1.95, yaw);
+  const cab = L2W(0, 0, -0.28);
+  RB.box(b, cab[0], 1.22, cab[2], 0.70, 0.24, 0.98, yaw);
+
+  // 挡风玻璃斜线（把座舱前缘和引擎盖连起来）
+  const w1 = L2W( 0.70, 1.22,  0.70), w2 = L2W( 0.86, 0.98, 1.30);
+  const w3 = L2W(-0.70, 1.22,  0.70), w4 = L2W(-0.86, 0.98, 1.30);
+  RB.seg(b, w1[0],w1[1],w1[2], w2[0],w2[1],w2[2]);
+  RB.seg(b, w3[0],w3[1],w3[2], w4[0],w4[1],w4[2]);
+
+  // 后窗
+  const r1 = L2W( 0.70, 1.22, -1.26), r2 = L2W( 0.90, 0.95, -1.85);
+  const r3 = L2W(-0.70, 1.22, -1.26), r4 = L2W(-0.90, 0.95, -1.85);
+  RB.seg(b, r1[0],r1[1],r1[2], r2[0],r2[1],r2[2]);
+  RB.seg(b, r3[0],r3[1],r3[2], r4[0],r4[1],r4[2]);
+
+  // 前格栅（左右分段）
+  const g1 = L2W( 0.55, 0.62, 1.97), g2 = L2W( 0.15, 0.62, 1.97);
+  const g3 = L2W(-0.55, 0.62, 1.97), g4 = L2W(-0.15, 0.62, 1.97);
+  RB.seg(b, g1[0],g1[1],g1[2], g2[0],g2[1],g2[2]);
+  RB.seg(b, g3[0],g3[1],g3[2], g4[0],g4[1],g4[2]);
+
+  // 左右双尾灯（分段短线，比一整条横线更像车）
+  const k1 = L2W( 0.68, 0.86, -1.97), k2 = L2W( 0.28, 0.86, -1.97);
+  const k3 = L2W(-0.68, 0.86, -1.97), k4 = L2W(-0.28, 0.86, -1.97);
+  RB.seg(A, k1[0],k1[1],k1[2], k2[0],k2[1],k2[2]);
+  RB.seg(A, k3[0],k3[1],k3[2], k4[0],k4[1],k4[2]);
+
+  // 四轮：竖直圆盘（法向 X 轴）
+  const RW = 0.38;
+  for(const [lx,lz] of [[0.97,1.30],[-0.97,1.30],[0.97,-1.30],[-0.97,-1.30]]){
+    const N = 8, pts = [];
+    for(let i=0;i<N;i++){
+      const a = i/N*TAU;
+      pts.push(L2W(lx, RW + Math.cos(a)*RW, lz + Math.sin(a)*RW));
+    }
+    for(let i=0;i<N;i++){
+      const p = pts[i], q = pts[(i+1)%N];
+      RB.seg(b, p[0],p[1],p[2], q[0],q[1],q[2]);
+    }
+    // 轮辐
+    const ctr = L2W(lx, RW, lz);
+    RB.seg(b, ctr[0],ctr[1],ctr[2], pts[0][0],pts[0][1],pts[0][2]);
+    RB.seg(b, ctr[0],ctr[1],ctr[2], pts[4][0],pts[4][1],pts[4][2]);
+  }
+
+  // 车头朝向指示（强调色小箭头，帮助判断车头）
+  const n1 = L2W(0, 0.62, 2.45), n2 = L2W(0.34, 0.62, 2.05), n3 = L2W(-0.34, 0.62, 2.05);
+  RB.seg(A, n1[0],n1[1],n1[2], n2[0],n2[1],n2[2]);
+  RB.seg(A, n1[0],n1[1],n1[2], n3[0],n3[1],n3[2]);
+  RB.seg(A, n2[0],n2[1],n2[2], n3[0],n3[1],n3[2]);
+
+  // 车底投影（斜排线，代替实心阴影）
+  for(let i=0;i<5;i++){
+    const lz = -1.7 + i*0.85;
+    const p1 = L2W( 1.05, 0.012, lz), p2 = L2W(-1.05, 0.012, lz);
+    RB.seg(RB.soft, p1[0],p1[1],p1[2], p2[0],p2[1],p2[2]);
+  }
+}
+
+// 漂移痕迹
+const marks = [];
+function pushMarks(){
+  const spd = Math.hypot(car.vx, car.vz);
+  if(Math.abs(car.vl) > 3.2 && spd > 8){
+    const s = Math.sin(car.h), c = Math.cos(car.h);
+    for(const lx of [0.97,-0.97]){
+      const x = car.x + lx*c - 1.3*s;
+      const z = car.z - lx*s - 1.3*c;
+      marks.push({x, z, a: car.h, t: 1});
+    }
+  }
+  if(marks.length > 420) marks.splice(0, marks.length-420);
+  for(let i=marks.length-1;i>=0;i--){
+    marks[i].t -= 0.0075;
+    if(marks[i].t <= 0) marks.splice(i,1);
+  }
+}
+function buildMarks(){
+  for(const m of marks){
+    const s = Math.sin(m.a), c = Math.cos(m.a);
+    const len = 1.5;
+    RB.seg(RB.soft, m.x - s*len, 0.02, m.z - c*len, m.x + s*len, 0.02, m.z + c*len);
+  }
+}
+
+/* =====================================================================
+   输入
+   ===================================================================== */
+const keys = {up:false, down:false, left:false, right:false, space:false};
+function setKey(code, v){
+  switch(code){
+    case "KeyW": case "ArrowUp":    keys.up = v; return true;
+    case "KeyS": case "ArrowDown":  keys.down = v; return true;
+    case "KeyA": case "ArrowLeft":  keys.left = v; return true;
+    case "KeyD": case "ArrowRight": keys.right = v; return true;
+    case "Space":                   keys.space = v; return true;
+  }
+  return false;
+}
+window.addEventListener("keydown", e=>{
+  if(e.repeat){ if(setKey(e.code,true)) e.preventDefault(); return; }
+  if(setKey(e.code, true)) e.preventDefault();
+  if(e.code === "KeyR"){
+    resetCar(); resetLap();
+    if(state === "play") toast("重置", "回到起点重新计时");
+  }
+  if(e.code === "Space" && state !== "play") startGame();
+});
+window.addEventListener("keyup", e=>{ if(setKey(e.code,false)) e.preventDefault(); });
+window.addEventListener("blur", ()=>{ keys.up=keys.down=keys.left=keys.right=keys.space=false; });
+
+/* =====================================================================
+   游戏状态
+   ===================================================================== */
+let state = "ready";       // ready | play | done
+let nextCP = 1;
+let lapTime = 0, lastLap = 0, bestLap = Infinity, lapCount = 0;
+
+const elLap  = document.getElementById("tLap");
+const elBest = document.getElementById("tBest");
+const elLaps = document.getElementById("tLaps");
+const elSpd  = document.getElementById("spd");
+const elSpdFill = document.getElementById("spdFill");
+const elCpDots = document.getElementById("cpDots");
+const elCpInfo = document.getElementById("cpInfo");
+const elToast  = document.getElementById("toast");
+const elOverlay = document.getElementById("overlay");
+
+(function buildDots(){
+  let html = "";
+  for(let i=0;i<CP_COUNT;i++){
+    html += '<div class="dot'+(i===0?' done':'')+'" data-i="'+i+'"></div>';
+  }
+  elCpDots.innerHTML = html;
+})();
+
+function refreshDots(){
+  const dots = elCpDots.children;
+  for(let i=0;i<dots.length;i++){
+    const d = dots[i];
+    let cls = "dot";
+    if(i === nextCP) cls = "dot next";
+    // nextCP===0 表示中间门已全部通过 → 终点线高亮，其余保持已完成
+    else if(nextCP === 0 ? i > 0 : i < nextCP) cls = "dot done";
+    if(d.className !== cls) d.className = cls;   // 只在变化时改，省掉无谓样式重算
+  }
+  const cp = CPS[nextCP];
+  const dist = Math.hypot(car.x-cp.x, car.z-cp.z);
+  elCpInfo.textContent = nextCP===0
+    ? "冲过终点线 · " + dist.toFixed(0) + "m"
+    : "下一门 #" + nextCP + " · " + dist.toFixed(0) + "m";
+}
+
+function fmt(t){
+  if(!isFinite(t) || t <= 0) return "--.--";
+  const m = Math.floor(t/60);
+  const s = t - m*60;
+  return (m>0 ? m+":"+(s<10?"0":"") : "") + s.toFixed(2);
+}
+
+let toastTimer = 0;
+function toast(main, sub){
+  elToast.innerHTML = main + (sub ? "<small>"+sub+"</small>" : "");
+  elToast.classList.remove("show");
+  void elToast.offsetWidth;
+  elToast.classList.add("show");
+  toastTimer = 1.9;
+}
+
+function startGame(){
+  state = "play";
+  elOverlay.classList.add("hide");
+  resetCar(); resetLap();
+  toast("GO!", "冲过 9 个门完成一圈");
+}
+function resetLap(){
+  nextCP = 1; lapTime = 0;
+}
+function finishLap(){
+  const t = lapTime;
+  lastLap = t; lapCount++;
+  if(t < bestLap){
+    bestLap = t;
+    toast("NEW BEST  " + fmt(t), "第 " + lapCount + " 圈");
+  } else {
+    toast("LAP  " + fmt(t), "最佳 " + fmt(bestLap));
+  }
+  lapTime = 0;
+  nextCP = 1;
+}
+
+function checkCP(){
+  const cp = CPS[nextCP];
+  const dx = car.x - cp.x, dz = car.z - cp.z;
+  const along = dx*cp.tx + dz*cp.tz;
+  const lat   = dx*cp.nx + dz*cp.nz;
+  if(Math.abs(along) > 3.4 || Math.abs(lat) > cp.w + 2.6) return;
+
+  if(nextCP === 0){
+    finishLap();
+  } else {
+    nextCP = (nextCP+1) % CP_COUNT;
+    if(nextCP === 0) toast("最后一段！", "冲线完成这一圈");
+  }
+  refreshDots();
+}
+
+/* =====================================================================
+   物理更新
+   ===================================================================== */
+function updateCar(dt){
+  const thr = (keys.up?1:0) - (keys.down?1:0);
+  const st  = (keys.right?1:0) - (keys.left?1:0);
+  const hand = keys.space;
+  car.hand = hand;
+
+  // 旧朝向基向量
+  const fx = Math.sin(car.h), fz = Math.cos(car.h);
+  const rx = Math.cos(car.h), rz = -Math.sin(car.h);
+
+  // 世界速度 → 纵向 / 横向
+  let vf = car.vx*fx + car.vz*fz;
+  let vl = car.vx*rx + car.vz*rz;
+
+  // --- 纵向动力
+  if(thr > 0){
+    vf += P.engine * dt;
+  } else if(thr < 0){
+    if(vf > 0.5) vf -= P.brake * dt;
+    else         vf -= P.reverse * dt;
+  }
+  // 空气阻力 + 滚动阻力
+  vf -= P.drag * vf * Math.abs(vf) * dt;
+  vf -= P.roll * vf * dt;
+  if(hand) vf -= Math.sign(vf) * 12 * dt;
+
+  // --- 横向抓地（核心漂移手感）
+  let grip = hand ? P.gripHand : P.gripNormal;
+  if(car.offRoad > 0.05) grip = lerp(grip, P.gripOff, clamp(car.offRoad,0,1));
+  vl *= Math.exp(-grip * dt);
+
+  // --- 转向：只改车头朝向，速度方向靠抓地慢慢跟随
+  const spd = Math.hypot(car.vx, car.vz);
+  const sfrac = clamp(spd / P.steerRef, 0, 1);
+  const yawRate = P.steerMax + (P.steerMin - P.steerMax) * sfrac;
+  const dir = vf >= 0 ? 1 : -1;
+  const authority = 0.30 + 0.70 * clamp(spd/5.5, 0, 1);
+  car.h += st * yawRate * dt * dir * authority;
+
+  // 手刹时后轮失去抓地 → 额外偏航，甩尾更爽
+  if(hand && spd > 6) car.h += st * 1.35 * dt * dir;
+
+  // --- 用「旧朝向」重合成世界速度（关键：不能立即跟随新车头）
+  car.vx = fx*vf + rx*vl;
+  car.vz = fz*vf + rz*vl;
+  car.vf = vf; car.vl = vl;
+
+  // --- 积分位置
+  car.x += car.vx * dt;
+  car.z += car.vz * dt;
+
+  // --- 出界：赛道外速度快速衰减
+  const nt = nearestTrack(car.x, car.z);
+  const off = nt.d - nt.w;
+  if(off > 1.4){
+    car.offRoad = clamp((off-1.4)/6, 0, 1);
+    const slow = Math.exp(-car.offRoad * 2.6 * dt);
+    car.vx *= slow; car.vz *= slow;
+  } else {
+    car.offRoad = 0;
+  }
+
+  // 高速限幅
+  const now = Math.hypot(car.vx, car.vz);
+  if(now > P.topSpeed){
+    const k = P.topSpeed/now;
+    car.vx *= k; car.vz *= k;
+  }
+  car.slip = Math.abs(car.vl);
+
+  lapTime += dt;
+  checkCP();
+  pushMarks();
+}
+
+/* =====================================================================
+   相机
+   ===================================================================== */
+const camA = {px:0,py:8,pz:0, tx:0,ty:1,tz:0};
+function camTarget(out){
+  const s = Math.sin(car.h), c = Math.cos(car.h);
+  const spd = Math.hypot(car.vx, car.vz);
+  const back = 9.2 + spd*0.115 + (car.hand ? 0.7 : 0);
+  const up   = 4.15 + spd*0.028;
+  out.px = car.x - s*back;
+  out.py = up;
+  out.pz = car.z - c*back;
+  const lead = 7.0 + spd*0.14;
+  out.tx = car.x + s*lead;
+  out.ty = 1.25;
+  out.tz = car.z + c*lead;
+}
+function camSnap(){
+  camTarget(camA);
+  cam.px = camA.px; cam.py = camA.py; cam.pz = camA.pz;
+  cam.cx2 = camA.tx; cam.cy2 = camA.ty; cam.cz2 = camA.tz;
+}
+function updateCamera(dt){
+  camTarget(camA);
+  const k = 1 - Math.exp(-6.2*dt);
+  const kt = 1 - Math.exp(-9.0*dt);
+  cam.px = lerp(cam.px, camA.px, k);
+  cam.py = lerp(cam.py, camA.py, k);
+  cam.pz = lerp(cam.pz, camA.pz, k);
+  cam.cx2 = lerp(cam.cx2 ?? camA.tx, camA.tx, kt);
+  cam.cy2 = lerp(cam.cy2 ?? camA.ty, camA.ty, kt);
+  cam.cz2 = lerp(cam.cz2 ?? camA.tz, camA.tz, kt);
+
+  // 出界时相机抖一下，手感反馈
+  let sh = car.offRoad * 0.16 + (car.slip > 5 ? 0.05 : 0);
+  const jx = (Math.random()-0.5)*sh;
+  const jy = (Math.random()-0.5)*sh;
+
+  const fov = 1.14 + clamp(Math.hypot(car.vx,car.vz)/P.topSpeed,0,1)*0.30;
+  const focal = (H*0.5) / Math.tan(fov*0.5);
+  camLook(
+    cam.px + jx, cam.py + jy, cam.pz,
+    cam.cx2, cam.cy2, cam.cz2,
+    focal
+  );
+}
+
+/* =====================================================================
+   渲染
+   ===================================================================== */
+function renderDynamic(){
+  // 每帧重置：静态结构线 + 动态元素
+  const B = RB.buf;
+  B.length = N_STATIC_MAIN;
+  for(let i=0;i<N_STATIC_MAIN;i++) B[i] = STATIC_MAIN[i];
+  RB.soft.length = STATIC_SOFT.length;
+  for(let i=0;i<STATIC_SOFT.length;i++) RB.soft[i] = STATIC_SOFT[i];
+  RB.acc.length = 0;
+
+  buildCar();
+  buildMarks();
+
+  // 检查点门：下一个用强调色，其余用墨色
+  for(let i=0;i<CP_COUNT;i++){
+    if(i === nextCP) buildGate(RB.acc, CPS[i]);
+    else             buildGate(RB.buf, CPS[i]);
+  }
+
+  // 导航线：车身 → 下一个检查点（贴地虚线，强调色）
+  const cp = CPS[nextCP];
+  const dx = cp.x - car.x, dz = cp.z - car.z;
+  const dist = Math.hypot(dx,dz);
+  if(dist > 14){
+    const n = 7;
+    for(let i=0;i<n;i++){
+      const u0 = 0.12 + (i/n)*0.52;
+      const u1 = u0 + 0.036;
+      RB.seg(RB.acc,
+        car.x + dx*u0, 0.06, car.z + dz*u0,
+        car.x + dx*u1, 0.06, car.z + dz*u1);
+    }
+  }
+}
+
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0,0,W,H);
+
+  cam.w = W; cam.h = H;
+  cam.cx = W*0.5;
+  cam.cy = H*0.545;
+
+  drawBrush(RB.soft, {c:INK_RGB, a0:0.055, a1:0.42, w0:0.70, w1:1.30, jit:0.55});
+  drawBrush(RB.buf,  {c:INK_RGB, a0:0.075, a1:0.94, w0:0.80, w1:1.92, jit:1.00});
+  drawBrush(RB.acc,  {c:ACC_RGB, a0:0.16,  a1:1.00, w0:1.00, w1:2.30, jit:1.15});
+}
+
+/* =====================================================================
+   主循环
+   ===================================================================== */
+let last = 0, hudTick = 0;
+function frame(now){
+  const dt = Math.min(0.05, last ? (now-last)/1000 : 0.016);
+  last = now;
+  T_JIT = (T_JIT + dt) % 1000;
+
+  if(state === "play") updateCar(dt);
+  updateCamera(dt);
+  renderDynamic();
+  render();
+
+  // HUD
+  hudTick += dt;
+  if(hudTick > 0.06){
+    hudTick = 0;
+    const spd = Math.hypot(car.vx, car.vz) * 3.6;
+    elSpd.textContent = Math.round(spd);
+    const pct = clamp(spd/190, 0, 1);
+    elSpdFill.style.width = (pct*100).toFixed(1)+"%";
+    elSpdFill.className = pct > 0.82 ? "red" : "";
+    elLap.textContent  = fmt(lapTime);
+    elBest.textContent = fmt(bestLap);
+    elLaps.textContent = lapCount;
+    refreshDots();
+    if(toastTimer > 0) toastTimer -= 0.06;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+   启动
+   ===================================================================== */
+resetCar();
+resetLap();
+refreshDots();
+
+elOverlay.addEventListener("click", startGame);
+
+// 页面隐藏时清掉时间基准，避免回到前台时 dt 被算成一大跳
+document.addEventListener("visibilitychange", ()=>{ last = 0; });
+
+// 分享 / 调试参数：?auto=1 直接进入驾驶，&drive=1 自动踩住油门
+(function bootParams(){
+  if(typeof location === "undefined") return;
+  let q;
+  try { q = new URLSearchParams(location.search); } catch(e){ return; }
+  if(q.get("auto") !== "1") return;
+  startGame();
+  // 先沿赛道方向给初速，再偏转车头 → 产生天然横向滑移（演示漂移用）
+  const s0 = parseFloat(q.get("spd"));
+  if(isFinite(s0) && s0 > 0){
+    car.vx = Math.sin(car.h)*s0;
+    car.vz = Math.cos(car.h)*s0;
+  }
+  const nudge = parseFloat(q.get("h"));
+  if(isFinite(nudge)) car.h += nudge;
+  if(q.get("drive") === "1") keys.up = true;
+})();
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
