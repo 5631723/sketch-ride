@@ -3,6 +3,8 @@
 一个**纯手绘线稿风格**的 3D 驾驶小游戏。白纸作底、墨线勾边、橙红强调，全程「铅笔草稿」质感。
 零依赖、单文件、双击 `index.html` 即玩。
 
+🌐 **线上试玩（GitHub Pages）**：[https://5631723.github.io/sketch-ride/](https://5631723.github.io/sketch-ride/)
+
 ![开始界面](preview-start.png)
 ![漂移画面](preview-drift.png)
 
