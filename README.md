@@ -5,6 +5,8 @@
 
 🌐 **线上试玩（GitHub Pages）**：[https://5631723.github.io/sketch-ride/](https://5631723.github.io/sketch-ride/)
 
+> v2 · 3 赛道 × 3 难度 · 漂移计分 · 氮气 · 幽灵车 · 本地排行榜
+
 ![开始界面](preview-v2-start.png)
 ![漂移计分](preview-v2-score.png)
 
@@ -54,3 +56,7 @@
 
 - 手写体字体在部分系统会回退为普通字体，风格略有折扣。
 - 幽灵车与排行榜存 localStorage，换浏览器/清缓存会丢。
+
+---
+
+_最后更新：2026-09-16_
